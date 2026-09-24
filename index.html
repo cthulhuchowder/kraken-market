@@ -37,18 +37,6 @@
     display: flex; flex-direction: column; align-items: stretch;
   }
   .display header { text-align: center; margin-bottom: calc(var(--u) * 2.2); }
-  .display .status {
-    font-size: calc(var(--u) * 2.6); letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
-  }
-  .display .pulse {
-    display: block; margin: 0 auto calc(var(--u) * 1.6);
-    width: calc(var(--u) * 2.6); height: calc(var(--u) * 2.6); border-radius: 50%;
-    background: #3a3a3a; transition: background .6s, box-shadow .6s;
-  }
-  .display .pulse.up { background: var(--up); box-shadow: 0 0 calc(var(--u) * 2.4) rgba(47,227,143,.55); }
-  .display .pulse.down { background: var(--down); box-shadow: 0 0 calc(var(--u) * 2.4) rgba(255,77,94,.55); }
-  .display .pulse.live { animation: breathe 2.6s ease-in-out infinite; }
-  @keyframes breathe { 50% { transform: scale(.78); opacity: .7; } }
   .display .date { font-size: calc(var(--u) * 3.4); font-weight: 700; margin-top: calc(var(--u) * .6); }
 
   .display .rows { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: calc(var(--u) * 1.8); }
@@ -98,6 +86,7 @@
   .config input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .config .hint { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
   .config .hint a { color: var(--fg); }
+  .config .hint code { font: 13px "JetBrains Mono", monospace; color: var(--fg); }
   .config .check { display: flex; gap: 10px; align-items: center; margin-top: 18px; color: var(--fg); text-transform: none; letter-spacing: 0; font-size: 15px; }
   .config button {
     margin-top: 24px; padding: 12px 22px; border-radius: 10px; border: 0; cursor: pointer;
@@ -118,16 +107,17 @@
 
   <form class="config" id="form" autocomplete="off">
     <h1>Kraken Market</h1>
-    <p class="sub">Intraday trend for up to three tickers on your Kraken LCD. Settings are saved in CAM and picked up by the display automatically.</p>
+    <p class="sub">Intraday trend for up to three stocks or coins on your Kraken LCD. Settings are saved in CAM and picked up by the display automatically.</p>
 
-    <label for="tickers">Tickers (up to 3, comma separated)</label>
-    <input type="text" id="tickers" placeholder="SPY, AAPL, NVDA">
+    <label for="tickers">Tickers &amp; coins (up to 3, comma separated)</label>
+    <input type="text" id="tickers" placeholder="SPY, NVDA, BTC/USD">
+    <div class="hint">Stocks by symbol (<code>NVDA</code>), crypto as a pair (<code>BTC/USD</code>, <code>ETH/USD</code>). Any coin in the list keeps the display refreshing around the clock.</div>
 
     <label for="apiKey">Twelve Data API key</label>
     <input type="password" id="apiKey" placeholder="paste your free key">
     <div class="hint">Free key at <a href="https://twelvedata.com/pricing" target="_blank" rel="noopener">twelvedata.com</a> (800 requests/day). Each refresh uses one request per ticker.</div>
 
-    <label for="refresh">Refresh while market is open (minutes)</label>
+    <label for="refresh">Refresh interval (minutes)</label>
     <input type="number" id="refresh" min="1" max="60" step="1">
     <div class="hint" id="budget"></div>
 
@@ -141,7 +131,10 @@
 (() => {
   const LS_KEY = 'kraken-market-v1';
   const DEFAULTS = { apiKey: '', tickers: ['SPY', 'AAPL', 'NVDA'], refreshMin: 3, demo: false };
-  const BARS_PER_DAY = 78; // 6.5h of 5-minute bars
+  const BARS_PER_DAY = 78;   // stocks: 6.5h of 5-minute bars
+  const CRYPTO_BARS = 288;   // crypto: 24h of 5-minute bars
+  const isCrypto = sym => sym.includes('/');
+  const barsFor = sym => isCrypto(sym) ? CRYPTO_BARS : BARS_PER_DAY;
   const isKraken = new URLSearchParams(location.search).get('kraken') === '1';
   if (isKraken) document.body.classList.add('kraken');
 
@@ -156,7 +149,7 @@
   stage.innerHTML = `
     <div class="display" id="display">
       <div class="inner">
-        <header><span class="pulse" id="dot" title="Average change"></span><div class="status" id="statusText">—</div><div class="date" id="date"></div></header>
+        <header><div class="date" id="date"></div></header>
         <div class="rows" id="rows"><div class="empty">Loading…</div></div>
         <footer id="foot"></footer>
       </div>
@@ -232,6 +225,9 @@
     return s;
   }
 
+  // Crypto never closes, so its session is the whole UTC day the exchange stamps bars with
+  const cryptoProgress = (now = new Date()) => (now.getUTCHours() * 60 + now.getUTCMinutes()) / 1440;
+
   // ---------- data: Twelve Data ----------
   function shapeSeries(sym, values) {
     const bars = values.map(v => ({ t: v.datetime, o: +v.open, c: +v.close })).reverse();
@@ -240,11 +236,13 @@
     const prior = bars.filter(b => b.t.slice(0, 10) < lastDate);
     const prevClose = prior.length ? prior[prior.length - 1].c : today[0].o;
     const last = today[today.length - 1].c;
-    return { sym, prevClose, last, points: today.map(b => b.c), change: last - prevClose, pct: (last - prevClose) / prevClose * 100 };
+    return { sym, prevClose, last, points: today.map(b => b.c), change: last - prevClose, pct: (last - prevClose) / prevClose * 100, barsPerDay: barsFor(sym) };
   }
   async function fetchReal(s) {
+    // 288 bars fill a crypto day, so 200 would never reach back to the previous close
+    const outputsize = s.tickers.some(isCrypto) ? '400' : '200';
     const url = 'https://api.twelvedata.com/time_series?' + new URLSearchParams({
-      symbol: s.tickers.join(','), interval: '5min', outputsize: '200', timezone: 'exchange', apikey: s.apiKey
+      symbol: s.tickers.join(','), interval: '5min', outputsize, timezone: 'exchange', apikey: s.apiKey
     });
     const res = await fetch(url);
     const j = await res.json();
@@ -259,25 +257,35 @@
 
   // ---------- data: demo ----------
   function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  const DEMO_COIN = { BTC: 64000, ETH: 3100, SOL: 150, BNB: 570, XRP: .55, ADA: .45, DOGE: .12, AVAX: 28, LINK: 15, LTC: 72, DOT: 6, TRX: .13, MATIC: .55, SHIB: .000022 };
   function fakeData(s, state) {
     const dayKey = Math.floor(Date.now() / 864e5);
-    const n = Math.max(2, state.progress === 0 ? BARS_PER_DAY : Math.round(state.progress * BARS_PER_DAY));
+    const cryptoProg = cryptoProgress();
     return s.tickers.map(sym => {
+      const bars = barsFor(sym);
+      const prog = isCrypto(sym) ? cryptoProg : state.progress;
+      const n = Math.max(2, prog === 0 ? bars : Math.round(prog * bars));
       const seed = [...sym].reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7) + dayKey;
       const r = rng(seed);
-      const prevClose = 40 + r() * 600;
-      const drift = (r() - 0.5) * 0.0012;
+      const prevClose = isCrypto(sym) ? (DEMO_COIN[sym.split('/')[0]] || 100) * (.9 + r() * .2) : 40 + r() * 600;
+      const scale = BARS_PER_DAY / bars;                 // keep a day's worth of motion the same either way
+      const drift = (r() - 0.5) * 0.0012 * scale;
+      const vol = 0.004 * Math.sqrt(scale);
       let p = prevClose * (1 + (r() - 0.5) * 0.01);
       const points = [];
-      for (let i = 0; i < n; i++) { p *= 1 + drift + (r() - 0.5) * 0.004; points.push(p); }
+      for (let i = 0; i < n; i++) { p *= 1 + drift + (r() - 0.5) * vol; points.push(p); }
       const last = points[points.length - 1];
-      return { sym, prevClose, last, points, change: last - prevClose, pct: (last - prevClose) / prevClose * 100 };
+      return { sym, prevClose, last, points, change: last - prevClose, pct: (last - prevClose) / prevClose * 100, barsPerDay: bars };
     });
   }
 
   // ---------- rendering ----------
   const dir = pct => Math.abs(pct) < 0.005 ? 'flat' : pct > 0 ? 'up' : 'down';
-  const fmtPrice = v => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtPrice = v => {
+    const a = Math.abs(v), d = a >= 10000 ? 0 : a >= 1 ? 2 : a >= 0.01 ? 4 : 6;
+    return v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  };
+  const label = sym => sym.endsWith('/USD') ? sym.slice(0, -4) : sym;   // BTC/USD reads as BTC
   const sign = v => (v > 0 ? '+' : v < 0 ? '−' : '');
 
   function sparkline(q) {
@@ -286,7 +294,7 @@
     const lo = Math.min(q.prevClose, ...vals), hi = Math.max(q.prevClose, ...vals);
     const span = (hi - lo) || 1;
     const y = v => pad + (1 - (v - lo) / span) * (H - pad * 2);
-    const x = i => Math.min(W, (i / (BARS_PER_DAY - 1)) * W);
+    const x = i => Math.min(W, (i / ((q.barsPerDay || BARS_PER_DAY) - 1)) * W);
     const line = vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(2)},${y(v).toFixed(2)}`).join('');
     const base = y(q.prevClose).toFixed(2);
     const lastX = x(vals.length - 1).toFixed(2);
@@ -302,35 +310,27 @@
   function renderRows(rows) {
     if (!rows || !rows.length) { $('rows').innerHTML = `<div class="empty">Add tickers in settings</div>`; return; }
     $('rows').innerHTML = rows.map(q => {
-      if (q.error) return `<div class="row err"><div class="sym">${q.sym}</div><div class="msg">${q.error.slice(0, 40)}</div></div>`;
+      if (q.error) return `<div class="row err"><div class="sym">${label(q.sym)}</div><div class="msg">${q.error.slice(0, 40)}</div></div>`;
       const d = dir(q.pct);
       return `<div class="row ${d}">
-        <div class="id"><div class="sym">${q.sym}</div><div class="price">${fmtPrice(q.last)}</div></div>
+        <div class="id"><div class="sym">${label(q.sym)}</div><div class="price">${fmtPrice(q.last)}</div></div>
         ${sparkline(q)}
         <div class="chg"><div class="pct">${sign(q.pct)}${Math.abs(q.pct).toFixed(2)}%</div><div class="abs">${sign(q.change)}${fmtPrice(Math.abs(q.change))}</div></div>
       </div>`;
     }).join('');
   }
 
-  function renderClock(rows) {
-    const st = marketState();
-    $('statusText').textContent = st.label + (useDemo(settings) ? ' · demo' : '');
-    $('date').textContent = st.dateLabel;
-    const ok = (rows || []).filter(r => !r.error);
-    const avg = ok.length ? ok.reduce((a, r) => a + r.pct, 0) / ok.length : 0;
-    const dot = $('dot');
-    dot.classList.toggle('up', ok.length > 0 && avg >= 0);
-    dot.classList.toggle('down', ok.length > 0 && avg < 0);
-    dot.classList.toggle('live', st.open);
-    dot.title = ok.length ? `Average ${avg >= 0 ? '+' : ''}${avg.toFixed(2)}%` : 'No data';
+  function renderClock() {
+    $('date').textContent = marketState().dateLabel;
   }
 
   // ---------- refresh loop ----------
   let lastRows = null, lastFetch = 0, fetching = false;
   async function refresh(force = false) {
     const st = marketState();
-    const interval = (st.open ? Math.max(1, settings.refreshMin) : 30) * 60e3;
-    if (!force && Date.now() - lastFetch < interval) { renderClock(lastRows); return; }
+    const live = st.open || settings.tickers.some(isCrypto);
+    const interval = (live ? Math.max(1, settings.refreshMin) : 30) * 60e3;
+    if (!force && Date.now() - lastFetch < interval) { renderClock(); return; }
     if (fetching) return;
     fetching = true;
     const foot = $('foot');
@@ -338,7 +338,7 @@
       lastRows = useDemo(settings) ? fakeData(settings, st) : await fetchReal(settings);
       lastFetch = Date.now();
       foot.classList.remove('error');
-      foot.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET';
+      foot.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET' + (useDemo(settings) ? ' · demo' : '');
     } catch (e) {
       lastFetch = Date.now() - interval + 60e3; // retry in ~1 min
       foot.classList.add('error');
@@ -346,7 +346,7 @@
     } finally {
       fetching = false;
       renderRows(lastRows);
-      renderClock(lastRows);
+      renderClock();
     }
   }
 
@@ -360,18 +360,21 @@
     f.apiKey.value = settings.apiKey;
     f.refresh.value = settings.refreshMin;
     f.demo.checked = settings.demo;
+    const parse = v => v.split(',').map(t => t.trim().toUpperCase()).filter(Boolean).slice(0, 3);
     const budget = () => {
-      const n = Math.max(1, Math.min(3, f.tickers.value.split(',').filter(t => t.trim()).length));
+      const list = parse(f.tickers.value);
+      const n = Math.max(1, list.length);
       const m = Math.max(1, +f.refresh.value || 3);
-      const perDay = Math.ceil(390 / m) * n + Math.ceil((1440 - 390) / 30) * n;
-      $('budget').textContent = `≈ ${perDay} requests/day with ${n} ticker${n > 1 ? 's' : ''} (every 30 min when closed).` + (perDay > 800 ? ' Over the free limit — raise the interval.' : '');
+      const allDay = list.some(isCrypto);
+      const perDay = allDay ? Math.ceil(1440 / m) * n : Math.ceil(390 / m) * n + Math.ceil((1440 - 390) / 30) * n;
+      $('budget').textContent = `≈ ${perDay} requests/day with ${n} symbol${n > 1 ? 's' : ''} (${allDay ? 'coins refresh 24/7' : 'every 30 min while closed'}).` + (perDay > 800 ? ' Over the free limit — raise the interval.' : '');
     };
     ['input', 'change'].forEach(ev => { f.tickers.addEventListener(ev, budget); f.refresh.addEventListener(ev, budget); });
     budget();
     $('form').addEventListener('submit', e => {
       e.preventDefault();
       settings = {
-        tickers: f.tickers.value.split(',').map(t => t.trim().toUpperCase()).filter(Boolean).slice(0, 3),
+        tickers: parse(f.tickers.value),
         apiKey: f.apiKey.value.trim(),
         refreshMin: Math.max(1, Math.min(60, Math.round(+f.refresh.value || 3))),
         demo: f.demo.checked
