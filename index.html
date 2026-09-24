@@ -282,8 +282,8 @@
 
   // ---------- rendering ----------
   const dir = pct => Math.abs(pct) < 0.005 ? 'flat' : pct > 0 ? 'up' : 'down';
-  const fmtPrice = v => {
-    const a = Math.abs(v), d = a >= 10000 ? 0 : a >= 1 ? 2 : a >= 0.01 ? 4 : 6;
+  const fmtPrice = (v, ref = v) => {   // ref sets the precision, so a price and its change agree
+    const a = Math.abs(ref), d = a >= 10000 ? 0 : a >= 1 ? 2 : a >= 0.01 ? 4 : 6;
     return v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
   };
   const label = sym => sym.endsWith('/USD') ? sym.slice(0, -4) : sym;   // BTC/USD reads as BTC
@@ -316,7 +316,7 @@
       return `<div class="row ${d}">
         <div class="id"><div class="sym">${label(q.sym)}</div><div class="price">${fmtPrice(q.last)}</div></div>
         ${sparkline(q)}
-        <div class="chg"><div class="pct">${sign(q.pct)}${Math.abs(q.pct).toFixed(2)}%</div><div class="abs">${sign(q.change)}${fmtPrice(Math.abs(q.change))}</div></div>
+        <div class="chg"><div class="pct">${sign(q.pct)}${Math.abs(q.pct).toFixed(2)}%</div><div class="abs">${sign(q.change)}${fmtPrice(Math.abs(q.change), q.last)}</div></div>
       </div>`;
     }).join('');
   }
