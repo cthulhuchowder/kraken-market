@@ -58,8 +58,9 @@
     padding: calc(var(--u) * .6) calc(var(--u) * 1.4); border-radius: calc(var(--u) * 1.4);
   }
   .display .abs { font-size: calc(var(--u) * 2.5); color: var(--muted); margin-top: calc(var(--u) * .7); }
-  .display .pct { color: var(--fg); background: rgba(255,255,255,.08); }
-  .display .down .pct { color: #bdbdbd; background: rgba(255,255,255,.04); }
+  .display .pct { color: var(--fg); background: rgba(255,255,255,.08); }   /* flat */
+  .display .up .pct { color: var(--up); background: rgba(47,227,143,.14); }
+  .display .down .pct { color: var(--down); background: rgba(255,77,94,.14); }
   .display .row.err { grid-template-columns: 1fr auto; }
   .display .row.err .msg { color: var(--muted); font-size: calc(var(--u) * 2.4); text-align: right; }
 
