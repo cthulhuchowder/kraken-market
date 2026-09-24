@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kraken Market</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000;
+    --panel: #0d0d0d;
+    --fg: #f5f5f5;
+    --muted: #7a7a7a;
+    --line: #262626;
+    --up: #2fe38f;
+    --down: #ff4d5e;
+    --accent: #f5f5f5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--fg); font-family: "Space Grotesk", system-ui, sans-serif; }
+
+  /* ---------- Display (sized by --u = 1% of the display diameter) ---------- */
+  .display {
+    --u: 6.4px;
+    position: relative;
+    width: 100%; aspect-ratio: 1;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 40%, #141414 0%, #000 72%);
+    overflow: hidden;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .display .inner {
+    position: absolute; left: 16.5%; right: 16.5%; top: 11%; bottom: 12%;
+    display: flex; flex-direction: column; align-items: stretch;
+  }
+  .display header { text-align: center; margin-bottom: calc(var(--u) * 2.2); }
+  .display .status {
+    font-size: calc(var(--u) * 2.6); letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
+  }
+  .display .pulse {
+    display: block; margin: 0 auto calc(var(--u) * 1.6);
+    width: calc(var(--u) * 2.6); height: calc(var(--u) * 2.6); border-radius: 50%;
+    background: #3a3a3a; transition: background .6s, box-shadow .6s;
+  }
+  .display .pulse.up { background: var(--up); box-shadow: 0 0 calc(var(--u) * 2.4) rgba(47,227,143,.55); }
+  .display .pulse.down { background: var(--down); box-shadow: 0 0 calc(var(--u) * 2.4) rgba(255,77,94,.55); }
+  .display .pulse.live { animation: breathe 2.6s ease-in-out infinite; }
+  @keyframes breathe { 50% { transform: scale(.78); opacity: .7; } }
+  .display .date { font-size: calc(var(--u) * 3.4); font-weight: 700; margin-top: calc(var(--u) * .6); }
+
+  .display .rows { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: calc(var(--u) * 1.8); }
+  .display .row {
+    display: grid; grid-template-columns: 1fr 1.1fr auto; align-items: center; gap: calc(var(--u) * 1.8);
+    padding: calc(var(--u) * 1.6) calc(var(--u) * 2.2);
+    border-radius: calc(var(--u) * 2.4);
+    background: rgba(255,255,255,.028);
+    border: 1px solid rgba(255,255,255,.05);
+    max-height: calc(var(--u) * 17.5);
+    flex: 1;
+  }
+  .display .sym { font-size: calc(var(--u) * 5); font-weight: 700; line-height: 1; letter-spacing: .01em; }
+  .display .price { font-family: "JetBrains Mono", monospace; font-size: calc(var(--u) * 3.1); color: #a8a8a8; margin-top: calc(var(--u) * .9); }
+  .display .spark { width: 100%; height: calc(var(--u) * 9); overflow: visible; }
+  .display .chg { text-align: right; font-family: "JetBrains Mono", monospace; }
+  .display .pct {
+    font-size: calc(var(--u) * 3.6); font-weight: 700;
+    padding: calc(var(--u) * .6) calc(var(--u) * 1.4); border-radius: calc(var(--u) * 1.4);
+  }
+  .display .abs { font-size: calc(var(--u) * 2.5); color: var(--muted); margin-top: calc(var(--u) * .7); }
+  .display .pct { color: var(--fg); background: rgba(255,255,255,.08); }
+  .display .down .pct { color: #bdbdbd; background: rgba(255,255,255,.04); }
+  .display .row.err { grid-template-columns: 1fr auto; }
+  .display .row.err .msg { color: var(--muted); font-size: calc(var(--u) * 2.4); text-align: right; }
+
+  .display footer { text-align: center; font-size: calc(var(--u) * 2.3); color: var(--muted); margin-top: calc(var(--u) * 2.2); min-height: 1.2em; }
+  .display footer.error { color: var(--fg); }
+  .display .empty { text-align: center; color: var(--muted); font-size: calc(var(--u) * 3); }
+
+  /* ---------- Kraken mode ---------- */
+  body.kraken { background: #000; overflow: hidden; display: grid; place-items: center; }
+  body.kraken .config { display: none; }
+  body.kraken #stage { width: min(100vw, 100vh); }
+
+  /* ---------- Configuration mode ---------- */
+  body:not(.kraken) { padding: 32px 16px; }
+  .config-wrap { max-width: 980px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 40px; align-items: start; }
+  @media (max-width: 800px) { .config-wrap { grid-template-columns: 1fr; } }
+  .config h1 { font-size: 26px; margin-bottom: 6px; }
+  .config p.sub { color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
+  .config label { display: block; font-size: 13px; color: var(--muted); margin: 18px 0 6px; letter-spacing: .04em; text-transform: uppercase; }
+  .config input[type=text], .config input[type=password], .config input[type=number] {
+    width: 100%; padding: 11px 13px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--fg); font: 15px "JetBrains Mono", monospace;
+  }
+  .config input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .config .hint { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
+  .config .hint a { color: var(--fg); }
+  .config .check { display: flex; gap: 10px; align-items: center; margin-top: 18px; color: var(--fg); text-transform: none; letter-spacing: 0; font-size: 15px; }
+  .config button {
+    margin-top: 24px; padding: 12px 22px; border-radius: 10px; border: 0; cursor: pointer;
+    background: var(--accent); color: #000; font: 700 15px "Space Grotesk", sans-serif;
+  }
+  .config .saved { margin-left: 12px; color: var(--fg); font-size: 14px; opacity: 0; transition: opacity .3s; }
+  .config .saved.show { opacity: 1; }
+  .preview-col { position: sticky; top: 32px; }
+  .preview-col .cap { text-align: center; color: var(--muted); font-size: 13px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="config-wrap">
+  <div class="preview-col">
+    <div id="stage"></div>
+    <div class="config cap">Live preview — this is what the Kraken shows</div>
+  </div>
+
+  <form class="config" id="form" autocomplete="off">
+    <h1>Kraken Market</h1>
+    <p class="sub">Intraday trend for up to three tickers on your Kraken LCD. Settings are saved in CAM and picked up by the display automatically.</p>
+
+    <label for="tickers">Tickers (up to 3, comma separated)</label>
+    <input type="text" id="tickers" placeholder="SPY, AAPL, NVDA">
+
+    <label for="apiKey">Twelve Data API key</label>
+    <input type="password" id="apiKey" placeholder="paste your free key">
+    <div class="hint">Free key at <a href="https://twelvedata.com/pricing" target="_blank" rel="noopener">twelvedata.com</a> (800 requests/day). Each refresh uses one request per ticker.</div>
+
+    <label for="refresh">Refresh while market is open (minutes)</label>
+    <input type="number" id="refresh" min="1" max="60" step="1">
+    <div class="hint" id="budget"></div>
+
+    <label class="check"><input type="checkbox" id="demo"> Demo mode (simulated prices, no key needed)</label>
+
+    <div><button type="submit">Save</button><span class="saved" id="saved">Saved ✓</span></div>
+  </form>
+</div>
+
+<script>
+(() => {
+  const LS_KEY = 'kraken-market-v1';
+  const DEFAULTS = { apiKey: '', tickers: ['SPY', 'AAPL', 'NVDA'], refreshMin: 3, demo: false };
+  const BARS_PER_DAY = 78; // 6.5h of 5-minute bars
+  const isKraken = new URLSearchParams(location.search).get('kraken') === '1';
+  if (isKraken) document.body.classList.add('kraken');
+
+  // ---------- settings ----------
+  const load = () => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(LS_KEY) || '{}') }; } catch { return { ...DEFAULTS }; } };
+  const save = s => { try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch {} };
+  let settings = load();
+  const useDemo = s => s.demo || !s.apiKey;
+
+  // ---------- display scaffold ----------
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="display" id="display">
+      <div class="inner">
+        <header><span class="pulse" id="dot" title="Average change"></span><div class="status" id="statusText">—</div><div class="date" id="date"></div></header>
+        <div class="rows" id="rows"><div class="empty">Loading…</div></div>
+        <footer id="foot"></footer>
+      </div>
+    </div>`;
+  const $ = id => document.getElementById(id);
+  const display = $('display');
+
+  const sizeDisplay = () => {
+    const w = display.getBoundingClientRect().width || 640;
+    display.style.setProperty('--u', (w / 100) + 'px');
+  };
+  new ResizeObserver(sizeDisplay).observe(display);
+
+  // ---------- market clock (US/Eastern, NYSE holidays + early closes) ----------
+  const iso = d => d.toISOString().slice(0, 10);
+  const utc = (y, m, d) => new Date(Date.UTC(y, m - 1, d));
+  function nthWeekday(y, m, wd, n) {           // n = -1 → last
+    if (n > 0) { const f = utc(y, m, 1); return utc(y, m, 1 + ((wd - f.getUTCDay() + 7) % 7) + (n - 1) * 7); }
+    const l = utc(y, m + 1, 0); return utc(y, m, l.getUTCDate() - ((l.getUTCDay() - wd + 7) % 7));
+  }
+  function easter(y) {
+    const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4,
+      f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30,
+      i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451),
+      mo = Math.floor((h + l - 7 * m + 114) / 31), da = ((h + l - 7 * m + 114) % 31) + 1;
+    return utc(y, mo, da);
+  }
+  function observed(d, allowFriday = true) {
+    const w = d.getUTCDay();
+    if (w === 6) return allowFriday ? new Date(d - 864e5) : null;
+    if (w === 0) return new Date(+d + 864e5);
+    return d;
+  }
+  const calCache = {};
+  function nyseCalendar(y) {
+    if (calCache[y]) return calCache[y];
+    const hol = {}, early = {};
+    const add = (d, name) => { if (d) hol[iso(d)] = name; };
+    add(observed(utc(y, 1, 1), false), "New Year's Day");       // Sat New Year's isn't moved to Dec 31
+    add(nthWeekday(y, 1, 1, 3), 'MLK Day');
+    add(nthWeekday(y, 2, 1, 3), "Presidents' Day");
+    add(new Date(easter(y) - 2 * 864e5), 'Good Friday');
+    add(nthWeekday(y, 5, 1, -1), 'Memorial Day');
+    if (y >= 2022) add(observed(utc(y, 6, 19)), 'Juneteenth');
+    add(observed(utc(y, 7, 4)), 'Independence Day');
+    add(nthWeekday(y, 9, 1, 1), 'Labor Day');
+    const tg = nthWeekday(y, 11, 4, 4);
+    add(tg, 'Thanksgiving');
+    add(observed(utc(y, 12, 25)), 'Christmas');
+    const weekday = d => d.getUTCDay() > 0 && d.getUTCDay() < 6;
+    [utc(y, 7, 3), new Date(+tg + 864e5), utc(y, 12, 24)].forEach(d => { if (weekday(d) && !hol[iso(d)]) early[iso(d)] = true; });
+    return (calCache[y] = { hol, early });
+  }
+  function etNow(d = new Date()) {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',
+      hour: 'numeric', minute: 'numeric', hour12: false
+    }).formatToParts(d).map(x => [x.type, x.value]));
+    const mon = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short' }).format(d);
+    return { y: +p.year, key: `${p.year}-${p.month}-${p.day}`, wd: p.weekday, month: mon, day: +p.day, mins: ((+p.hour) % 24) * 60 + (+p.minute) };
+  }
+  function marketState(now) {
+    const t = etNow(now), OPEN = 570, cal = nyseCalendar(t.y);
+    const CLOSE = cal.early[t.key] ? 780 : 960;
+    const holiday = cal.hol[t.key];
+    let s;
+    if (t.wd === 'Sat' || t.wd === 'Sun') s = { open: false, progress: 1, label: 'Closed' };
+    else if (holiday) s = { open: false, progress: 1, label: 'Closed · ' + holiday };
+    else if (t.mins < OPEN) s = { open: false, progress: 0, label: 'Pre-market' };
+    else if (t.mins >= CLOSE) s = { open: false, progress: 1, label: 'Closed' };
+    else s = { open: true, progress: (t.mins - OPEN) / (CLOSE - OPEN), label: cal.early[t.key] ? 'Open · Closes 1 PM' : 'Market open' };
+    s.dateLabel = `${t.wd} · ${t.month} ${t.day}`;
+    return s;
+  }
+
+  // ---------- data: Twelve Data ----------
+  function shapeSeries(sym, values) {
+    const bars = values.map(v => ({ t: v.datetime, o: +v.open, c: +v.close })).reverse();
+    const lastDate = bars[bars.length - 1].t.slice(0, 10);
+    const today = bars.filter(b => b.t.startsWith(lastDate));
+    const prior = bars.filter(b => b.t.slice(0, 10) < lastDate);
+    const prevClose = prior.length ? prior[prior.length - 1].c : today[0].o;
+    const last = today[today.length - 1].c;
+    return { sym, prevClose, last, points: today.map(b => b.c), change: last - prevClose, pct: (last - prevClose) / prevClose * 100 };
+  }
+  async function fetchReal(s) {
+    const url = 'https://api.twelvedata.com/time_series?' + new URLSearchParams({
+      symbol: s.tickers.join(','), interval: '5min', outputsize: '200', timezone: 'exchange', apikey: s.apiKey
+    });
+    const res = await fetch(url);
+    const j = await res.json();
+    if (j.status === 'error') throw new Error(j.message || 'API error');
+    const map = s.tickers.length === 1 ? { [s.tickers[0]]: j } : j;
+    return s.tickers.map(sym => {
+      const d = map[sym];
+      if (!d || d.status === 'error' || !d.values || !d.values.length) return { sym, error: (d && d.message) || 'No data' };
+      return shapeSeries(sym, d.values);
+    });
+  }
+
+  // ---------- data: demo ----------
+  function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function fakeData(s, state) {
+    const dayKey = Math.floor(Date.now() / 864e5);
+    const n = Math.max(2, state.progress === 0 ? BARS_PER_DAY : Math.round(state.progress * BARS_PER_DAY));
+    return s.tickers.map(sym => {
+      const seed = [...sym].reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7) + dayKey;
+      const r = rng(seed);
+      const prevClose = 40 + r() * 600;
+      const drift = (r() - 0.5) * 0.0012;
+      let p = prevClose * (1 + (r() - 0.5) * 0.01);
+      const points = [];
+      for (let i = 0; i < n; i++) { p *= 1 + drift + (r() - 0.5) * 0.004; points.push(p); }
+      const last = points[points.length - 1];
+      return { sym, prevClose, last, points, change: last - prevClose, pct: (last - prevClose) / prevClose * 100 };
+    });
+  }
+
+  // ---------- rendering ----------
+  const dir = pct => Math.abs(pct) < 0.005 ? 'flat' : pct > 0 ? 'up' : 'down';
+  const fmtPrice = v => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const sign = v => (v > 0 ? '+' : v < 0 ? '−' : '');
+
+  function sparkline(q) {
+    const W = 100, H = 40, pad = 3;
+    const vals = q.points;
+    const lo = Math.min(q.prevClose, ...vals), hi = Math.max(q.prevClose, ...vals);
+    const span = (hi - lo) || 1;
+    const y = v => pad + (1 - (v - lo) / span) * (H - pad * 2);
+    const x = i => Math.min(W, (i / (BARS_PER_DAY - 1)) * W);
+    const line = vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(2)},${y(v).toFixed(2)}`).join('');
+    const base = y(q.prevClose).toFixed(2);
+    const lastX = x(vals.length - 1).toFixed(2);
+    const c = '#f5f5f5';
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <line x1="0" x2="${W}" y1="${base}" y2="${base}" stroke="#444" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>
+      <path d="${line}L${lastX},${base}L0,${base}Z" fill="${c}" fill-opacity=".07"/>
+      <path d="${line}" fill="none" stroke="${c}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+      <circle cx="${lastX}" cy="${y(vals[vals.length - 1]).toFixed(2)}" r="1.6" fill="${c}"/>
+    </svg>`;
+  }
+
+  function renderRows(rows) {
+    if (!rows || !rows.length) { $('rows').innerHTML = `<div class="empty">Add tickers in settings</div>`; return; }
+    $('rows').innerHTML = rows.map(q => {
+      if (q.error) return `<div class="row err"><div class="sym">${q.sym}</div><div class="msg">${q.error.slice(0, 40)}</div></div>`;
+      const d = dir(q.pct);
+      return `<div class="row ${d}">
+        <div class="id"><div class="sym">${q.sym}</div><div class="price">${fmtPrice(q.last)}</div></div>
+        ${sparkline(q)}
+        <div class="chg"><div class="pct">${sign(q.pct)}${Math.abs(q.pct).toFixed(2)}%</div><div class="abs">${sign(q.change)}${fmtPrice(Math.abs(q.change))}</div></div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderClock(rows) {
+    const st = marketState();
+    $('statusText').textContent = st.label + (useDemo(settings) ? ' · demo' : '');
+    $('date').textContent = st.dateLabel;
+    const ok = (rows || []).filter(r => !r.error);
+    const avg = ok.length ? ok.reduce((a, r) => a + r.pct, 0) / ok.length : 0;
+    const dot = $('dot');
+    dot.classList.toggle('up', ok.length > 0 && avg >= 0);
+    dot.classList.toggle('down', ok.length > 0 && avg < 0);
+    dot.classList.toggle('live', st.open);
+    dot.title = ok.length ? `Average ${avg >= 0 ? '+' : ''}${avg.toFixed(2)}%` : 'No data';
+  }
+
+  // ---------- refresh loop ----------
+  let lastRows = null, lastFetch = 0, fetching = false;
+  async function refresh(force = false) {
+    const st = marketState();
+    const interval = (st.open ? Math.max(1, settings.refreshMin) : 30) * 60e3;
+    if (!force && Date.now() - lastFetch < interval) { renderClock(lastRows); return; }
+    if (fetching) return;
+    fetching = true;
+    const foot = $('foot');
+    try {
+      lastRows = useDemo(settings) ? fakeData(settings, st) : await fetchReal(settings);
+      lastFetch = Date.now();
+      foot.classList.remove('error');
+      foot.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET';
+    } catch (e) {
+      lastFetch = Date.now() - interval + 60e3; // retry in ~1 min
+      foot.classList.add('error');
+      foot.textContent = (e.message || 'Fetch failed').slice(0, 48);
+    } finally {
+      fetching = false;
+      renderRows(lastRows);
+      renderClock(lastRows);
+    }
+  }
+
+  // Settings saved from CAM's Configure window reach the LCD page via the storage event
+  window.addEventListener('storage', e => { if (e.key === LS_KEY) { settings = load(); refresh(true); } });
+
+  // ---------- config form ----------
+  if (!isKraken) {
+    const f = { tickers: $('tickers'), apiKey: $('apiKey'), refresh: $('refresh'), demo: $('demo') };
+    f.tickers.value = settings.tickers.join(', ');
+    f.apiKey.value = settings.apiKey;
+    f.refresh.value = settings.refreshMin;
+    f.demo.checked = settings.demo;
+    const budget = () => {
+      const n = Math.max(1, Math.min(3, f.tickers.value.split(',').filter(t => t.trim()).length));
+      const m = Math.max(1, +f.refresh.value || 3);
+      const perDay = Math.ceil(390 / m) * n + Math.ceil((1440 - 390) / 30) * n;
+      $('budget').textContent = `≈ ${perDay} requests/day with ${n} ticker${n > 1 ? 's' : ''} (every 30 min when closed).` + (perDay > 800 ? ' Over the free limit — raise the interval.' : '');
+    };
+    ['input', 'change'].forEach(ev => { f.tickers.addEventListener(ev, budget); f.refresh.addEventListener(ev, budget); });
+    budget();
+    $('form').addEventListener('submit', e => {
+      e.preventDefault();
+      settings = {
+        tickers: f.tickers.value.split(',').map(t => t.trim().toUpperCase()).filter(Boolean).slice(0, 3),
+        apiKey: f.apiKey.value.trim(),
+        refreshMin: Math.max(1, Math.min(60, Math.round(+f.refresh.value || 3))),
+        demo: f.demo.checked
+      };
+      save(settings);
+      refresh(true);
+      const s = $('saved'); s.classList.add('show'); setTimeout(() => s.classList.remove('show'), 1800);
+    });
+  }
+
+  sizeDisplay();
+  refresh(true);
+  setInterval(() => refresh(false), 60e3);
+})();
+</script>
+</body>
+</html>
