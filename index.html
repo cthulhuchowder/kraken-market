@@ -16,7 +16,6 @@
     --line: #262626;
     --up: #2fe38f;
     --down: #ff4d5e;
-    --accent: #f5f5f5;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; background: var(--bg); color: var(--fg); font-family: "Space Grotesk", system-ui, sans-serif; }
@@ -56,9 +55,9 @@
   .display .pct {
     font-size: calc(var(--u) * 3.6); font-weight: 700;
     padding: calc(var(--u) * .6) calc(var(--u) * 1.4); border-radius: calc(var(--u) * 1.4);
+    color: var(--fg); background: rgba(255,255,255,.08);   /* flat */
   }
   .display .abs { font-size: calc(var(--u) * 2.5); color: var(--muted); margin-top: calc(var(--u) * .7); }
-  .display .pct { color: var(--fg); background: rgba(255,255,255,.08); }   /* flat */
   .display .up .pct { color: var(--up); background: rgba(47,227,143,.14); }
   .display .down .pct { color: var(--down); background: rgba(255,77,94,.14); }
   .display .row.err { grid-template-columns: 1fr auto; }
@@ -84,14 +83,14 @@
     width: 100%; padding: 11px 13px; border-radius: 10px; border: 1px solid var(--line);
     background: var(--panel); color: var(--fg); font: 15px "JetBrains Mono", monospace;
   }
-  .config input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .config input:focus { outline: 2px solid var(--fg); outline-offset: 1px; }
   .config .hint { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
   .config .hint a { color: var(--fg); }
   .config .hint code { font: 13px "JetBrains Mono", monospace; color: var(--fg); }
   .config .check { display: flex; gap: 10px; align-items: center; margin-top: 18px; color: var(--fg); text-transform: none; letter-spacing: 0; font-size: 15px; }
   .config button {
     margin-top: 24px; padding: 12px 22px; border-radius: 10px; border: 0; cursor: pointer;
-    background: var(--accent); color: #000; font: 700 15px "Space Grotesk", sans-serif;
+    background: var(--fg); color: #000; font: 700 15px "Space Grotesk", sans-serif;
   }
   .config .saved { margin-left: 12px; color: var(--fg); font-size: 14px; opacity: 0; transition: opacity .3s; }
   .config .saved.show { opacity: 1; }
@@ -184,25 +183,23 @@
     if (w === 0) return new Date(+d + 864e5);
     return d;
   }
-  const calCache = {};
   function nyseCalendar(y) {
-    if (calCache[y]) return calCache[y];
     const hol = {}, early = {};
-    const add = (d, name) => { if (d) hol[iso(d)] = name; };
-    add(observed(utc(y, 1, 1), false), "New Year's Day");       // Sat New Year's isn't moved to Dec 31
-    add(nthWeekday(y, 1, 1, 3), 'MLK Day');
-    add(nthWeekday(y, 2, 1, 3), "Presidents' Day");
-    add(new Date(easter(y) - 2 * 864e5), 'Good Friday');
-    add(nthWeekday(y, 5, 1, -1), 'Memorial Day');
-    if (y >= 2022) add(observed(utc(y, 6, 19)), 'Juneteenth');
-    add(observed(utc(y, 7, 4)), 'Independence Day');
-    add(nthWeekday(y, 9, 1, 1), 'Labor Day');
-    const tg = nthWeekday(y, 11, 4, 4);
-    add(tg, 'Thanksgiving');
-    add(observed(utc(y, 12, 25)), 'Christmas');
+    const add = d => { if (d) hol[iso(d)] = true; };
+    add(observed(utc(y, 1, 1), false));            // New Year's (a Sat one isn't moved to Dec 31)
+    add(nthWeekday(y, 1, 1, 3));                   // MLK Day
+    add(nthWeekday(y, 2, 1, 3));                   // Presidents' Day
+    add(new Date(easter(y) - 2 * 864e5));          // Good Friday
+    add(nthWeekday(y, 5, 1, -1));                  // Memorial Day
+    if (y >= 2022) add(observed(utc(y, 6, 19)));   // Juneteenth
+    add(observed(utc(y, 7, 4)));                   // Independence Day
+    add(nthWeekday(y, 9, 1, 1));                   // Labor Day
+    const tg = nthWeekday(y, 11, 4, 4);            // Thanksgiving
+    add(tg);
+    add(observed(utc(y, 12, 25)));                 // Christmas
     const weekday = d => d.getUTCDay() > 0 && d.getUTCDay() < 6;
     [utc(y, 7, 3), new Date(+tg + 864e5), utc(y, 12, 24)].forEach(d => { if (weekday(d) && !hol[iso(d)]) early[iso(d)] = true; });
-    return (calCache[y] = { hol, early });
+    return { hol, early };
   }
   function etNow(d = new Date()) {
     const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
@@ -215,16 +212,16 @@
   function marketState(now) {
     const t = etNow(now), OPEN = 570, cal = nyseCalendar(t.y);
     const CLOSE = cal.early[t.key] ? 780 : 960;
-    const holiday = cal.hol[t.key];
-    let s;
-    if (t.wd === 'Sat' || t.wd === 'Sun') s = { open: false, progress: 1, label: 'Closed' };
-    else if (holiday) s = { open: false, progress: 1, label: 'Closed · ' + holiday };
-    else if (t.mins < OPEN) s = { open: false, progress: 0, label: 'Pre-market' };
-    else if (t.mins >= CLOSE) s = { open: false, progress: 1, label: 'Closed' };
-    else s = { open: true, progress: (t.mins - OPEN) / (CLOSE - OPEN), label: cal.early[t.key] ? 'Open · Closes 1 PM' : 'Market open' };
-    s.dateLabel = `${t.wd} · ${t.month} ${t.day}`;
-    return s;
+    const dateLabel = `${t.wd} · ${t.month} ${t.day}`;
+    if (t.wd === 'Sat' || t.wd === 'Sun' || cal.hol[t.key] || t.mins >= CLOSE) return { open: false, progress: 1, dateLabel };
+    if (t.mins < OPEN) return { open: false, progress: 0, dateLabel };
+    return { open: true, progress: (t.mins - OPEN) / (CLOSE - OPEN), dateLabel };
   }
+
+  const quote = (sym, prevClose, points, barsPerDay) => {
+    const last = points[points.length - 1];
+    return { sym, prevClose, last, points, change: last - prevClose, pct: (last - prevClose) / prevClose * 100, barsPerDay };
+  };
 
   // ---------- data: Twelve Data ----------
   function shapeSeries(sym, values) {
@@ -233,19 +230,17 @@
       // Crypto never closes, so show a rolling 24h window against the close 288 bars back
       const win = bars.slice(-CRYPTO_BARS);
       const ref = bars.length > CRYPTO_BARS ? bars[bars.length - CRYPTO_BARS - 1].c : win[0].o;
-      const last = win[win.length - 1].c;
-      return { sym, prevClose: ref, last, points: win.map(b => b.c), change: last - ref, pct: (last - ref) / ref * 100, barsPerDay: CRYPTO_BARS };
+      return quote(sym, ref, win.map(b => b.c), CRYPTO_BARS);
     }
     const lastDate = bars[bars.length - 1].t.slice(0, 10);
     const today = bars.filter(b => b.t.startsWith(lastDate));
     const prior = bars.filter(b => b.t.slice(0, 10) < lastDate);
     const prevClose = prior.length ? prior[prior.length - 1].c : today[0].o;
-    const last = today[today.length - 1].c;
-    return { sym, prevClose, last, points: today.map(b => b.c), change: last - prevClose, pct: (last - prevClose) / prevClose * 100, barsPerDay: barsFor(sym) };
+    return quote(sym, prevClose, today.map(b => b.c), BARS_PER_DAY);
   }
   async function fetchReal(s) {
     // A coin needs its 288-bar window plus the bar 24h back; 200 covers a stock's previous close
-    const outputsize = s.tickers.some(isCrypto) ? String(CRYPTO_BARS + 1) : '200';
+    const outputsize = s.tickers.some(isCrypto) ? CRYPTO_BARS + 1 : '200';
     const url = 'https://api.twelvedata.com/time_series?' + new URLSearchParams({
       symbol: s.tickers.join(','), interval: '5min', outputsize, timezone: 'exchange', apikey: s.apiKey
     });
@@ -278,8 +273,7 @@
       let p = prevClose * (1 + (r() - 0.5) * 0.01);
       const points = [];
       for (let i = 0; i < n; i++) { p *= 1 + drift + (r() - 0.5) * vol; points.push(p); }
-      const last = points[points.length - 1];
-      return { sym, prevClose, last, points, change: last - prevClose, pct: (last - prevClose) / prevClose * 100, barsPerDay: bars };
+      return quote(sym, prevClose, points, bars);
     });
   }
 
@@ -298,7 +292,7 @@
     const lo = Math.min(q.prevClose, ...vals), hi = Math.max(q.prevClose, ...vals);
     const span = (hi - lo) || 1;
     const y = v => pad + (1 - (v - lo) / span) * (H - pad * 2);
-    const x = i => Math.min(W, (i / ((q.barsPerDay || BARS_PER_DAY) - 1)) * W);
+    const x = i => Math.min(W, (i / (q.barsPerDay - 1)) * W);
     const line = vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(2)},${y(v).toFixed(2)}`).join('');
     const base = y(q.prevClose).toFixed(2);
     const lastX = x(vals.length - 1).toFixed(2);
@@ -324,17 +318,14 @@
     }).join('');
   }
 
-  function renderClock() {
-    $('date').textContent = marketState().dateLabel;
-  }
-
   // ---------- refresh loop ----------
   let lastRows = null, lastFetch = 0, fetching = false;
   async function refresh(force = false) {
     const st = marketState();
     const live = st.open || settings.tickers.some(isCrypto);
     const interval = (live ? Math.max(1, settings.refreshMin) : 30) * 60e3;
-    if (!force && Date.now() - lastFetch < interval) { renderClock(); return; }
+    $('date').textContent = st.dateLabel;
+    if (!force && Date.now() - lastFetch < interval) return;
     if (fetching) return;
     fetching = true;
     const foot = $('foot');
@@ -350,7 +341,6 @@
     } finally {
       fetching = false;
       renderRows(lastRows);
-      renderClock();
     }
   }
 
@@ -389,7 +379,6 @@
     });
   }
 
-  sizeDisplay();
   refresh(true);
   setInterval(() => refresh(false), 60e3);
 })();
