@@ -226,12 +226,16 @@
     return s;
   }
 
-  // Crypto never closes, so its session is the whole UTC day the exchange stamps bars with
-  const cryptoProgress = (now = new Date()) => (now.getUTCHours() * 60 + now.getUTCMinutes()) / 1440;
-
   // ---------- data: Twelve Data ----------
   function shapeSeries(sym, values) {
     const bars = values.map(v => ({ t: v.datetime, o: +v.open, c: +v.close })).reverse();
+    if (isCrypto(sym)) {
+      // Crypto never closes, so show a rolling 24h window against the close 288 bars back
+      const win = bars.slice(-CRYPTO_BARS);
+      const ref = bars.length > CRYPTO_BARS ? bars[bars.length - CRYPTO_BARS - 1].c : win[0].o;
+      const last = win[win.length - 1].c;
+      return { sym, prevClose: ref, last, points: win.map(b => b.c), change: last - ref, pct: (last - ref) / ref * 100, barsPerDay: CRYPTO_BARS };
+    }
     const lastDate = bars[bars.length - 1].t.slice(0, 10);
     const today = bars.filter(b => b.t.startsWith(lastDate));
     const prior = bars.filter(b => b.t.slice(0, 10) < lastDate);
@@ -240,8 +244,8 @@
     return { sym, prevClose, last, points: today.map(b => b.c), change: last - prevClose, pct: (last - prevClose) / prevClose * 100, barsPerDay: barsFor(sym) };
   }
   async function fetchReal(s) {
-    // 288 bars fill a crypto day, so 200 would never reach back to the previous close
-    const outputsize = s.tickers.some(isCrypto) ? '400' : '200';
+    // A coin needs its 288-bar window plus the bar 24h back; 200 covers a stock's previous close
+    const outputsize = s.tickers.some(isCrypto) ? String(CRYPTO_BARS + 1) : '200';
     const url = 'https://api.twelvedata.com/time_series?' + new URLSearchParams({
       symbol: s.tickers.join(','), interval: '5min', outputsize, timezone: 'exchange', apikey: s.apiKey
     });
@@ -261,11 +265,10 @@
   const DEMO_COIN = { BTC: 64000, ETH: 3100, SOL: 150, BNB: 570, XRP: .55, ADA: .45, DOGE: .12, AVAX: 28, LINK: 15, LTC: 72, DOT: 6, TRX: .13, MATIC: .55, SHIB: .000022 };
   function fakeData(s, state) {
     const dayKey = Math.floor(Date.now() / 864e5);
-    const cryptoProg = cryptoProgress();
     return s.tickers.map(sym => {
       const bars = barsFor(sym);
-      const prog = isCrypto(sym) ? cryptoProg : state.progress;
-      const n = Math.max(2, prog === 0 ? bars : Math.round(prog * bars));
+      // A coin's rolling window is always full; a stock's fills as the session runs
+      const n = isCrypto(sym) ? bars : Math.max(2, state.progress === 0 ? bars : Math.round(state.progress * bars));
       const seed = [...sym].reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7) + dayKey;
       const r = rng(seed);
       const prevClose = isCrypto(sym) ? (DEMO_COIN[sym.split('/')[0]] || 100) * (.9 + r() * .2) : 40 + r() * 600;

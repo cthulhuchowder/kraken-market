@@ -11,7 +11,7 @@ Intraday stock and crypto trend for the circular LCD on an NZXT Kraken cooler. O
 ## What it does
 
 - **Up to three symbols**, stocks and crypto side by side.
-- **Intraday sparkline** per symbol against a dashed previous-close baseline, so the shape of the day reads at a glance.
+- **Intraday sparkline** per symbol against a dashed baseline — the previous close for stocks, the price 24 hours ago for coins — so the shape of the day reads at a glance.
 - **Percent badge in green or red**, neutral white when the move is under 0.005%.
 - **24/7 aware.** Coins keep refreshing overnight and on weekends; an all-stock list falls back to a 30-minute cadence once the US session closes.
 - **Demo mode** for setup and screenshots — no API key needed.
@@ -21,7 +21,7 @@ Intraday stock and crypto trend for the circular LCD on an NZXT Kraken cooler. O
 
 <table>
 <tr>
-<td width="50%"><img src="assets/mixed.png" alt="SPY, NVDA and BTC"><br><sub><b>Stocks and a coin.</b> BTC's line stops short of the right edge because its day is still running.</sub></td>
+<td width="50%"><img src="assets/mixed.png" alt="SPY, NVDA and BTC"><br><sub><b>Stocks and a coin.</b> BTC always spans the full width: its window is the last 24 hours, not today's session.</sub></td>
 <td width="50%"><img src="assets/crypto.png" alt="BTC, ETH and SOL"><br><sub><b>Coins only.</b> Nothing on screen refers to a market session.</sub></td>
 </tr>
 <tr>
@@ -91,11 +91,11 @@ Adding a coin removes the overnight discount — a 24/7 symbol is refreshed arou
 
 ## How it works
 
-Everything lives in `index.html` — 395 lines, about 260 of them vanilla JS. No framework, no bundler.
+Everything lives in `index.html` — 398 lines, about 260 of them vanilla JS. No framework, no bundler.
 
 - **Market clock.** A self-contained NYSE calendar computes holidays (including Good Friday via the Gregorian Easter algorithm) and half-days, so the app knows when the US session is actually open without calling anything.
-- **Bars.** Data is 5-minute candles. A stock day is 78 of them, a crypto day is 288; each quote carries its own count, and its sparkline is scaled to it. That's why a coin's line is shorter mid-day — it's a genuine fraction of a longer session, not a rendering artefact.
-- **Previous close.** Taken from the last bar of the prior date in the series, which is what the dashed baseline draws and what the percentage is measured against.
+- **Bars.** Data is 5-minute candles. A stock day is 78 of them and fills in as the session runs. A coin shows a rolling window of the last 288 (24 hours), so its line always spans the full width and never resets at midnight.
+- **Baseline.** For a stock, the last bar of the prior date in the series; for a coin, the close 288 bars before the latest one. That's what the dashed line draws and what the percentage is measured against.
 - **Sizing.** A `ResizeObserver` sets `--u` to 1% of the display's width; every font size, padding and radius is a multiple of it.
 
 ## Limits
